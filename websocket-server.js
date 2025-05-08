@@ -1,5 +1,5 @@
 import dotenv from 'dotenv';
-import { WebSocketServer } from 'ws';
+import { WebSocketServer, WebSocket } from 'ws'; // ✅ Import BOTH
 import fetch from 'node-fetch';
 // Load environment variables
 dotenv.config();

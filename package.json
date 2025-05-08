@@ -2,17 +2,31 @@
   "name": "server2",
   "version": "1.0.0",
   "type": "module",
-  "description": "WebSocket server for Twilio & ElevenLabs",
+  "description": "WebSocket server that bridges Twilio media stream with ElevenLabs Conversational AI",
   "main": "websocket-server.js",
   "scripts": {
-    "start": "node websocket-server.js"
+    "start": "node websocket-server.js",
+    "dev": "nodemon websocket-server.js"
   },
+  "keywords": [
+    "websocket",
+    "twilio",
+    "elevenlabs",
+    "ai",
+    "speech",
+    "server"
+  ],
+  "author": "Aditya Sohagpure",
+  "license": "MIT",
   "dependencies": {
     "dotenv": "^16.3.1",
-    "ws": "^8.13.0",
-    "node-fetch": "^3.3.2"
+    "node-fetch": "^3.3.2",
+    "ws": "^8.13.0"
   },
-  "devDependencies": {},
-  "author": "aditya sohagpure",
-  "license": "MIT"
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
 }

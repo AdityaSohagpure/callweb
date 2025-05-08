@@ -1,82 +1,151 @@
-require('dotenv').config();
-const WebSocket = require('ws');
-const axios = require('axios');
+import dotenv from 'dotenv';
+import WebSocket from 'ws';
+import fetch from 'node-fetch';
 
-const PORT = process.env.PORT || 8080;
-const wss = new WebSocket.Server({ host: '0.0.0.0', port: PORT });
+// Load environment variables
+dotenv.config();
 
-wss.on('connection', (ws) => {
-  console.log('🔗 Client connected');
-  let audioStream = [];
+const {
+  ELEVENLABS_API_KEY,
+  ELEVENLABS_AGENT_ID,
+  PORT = 8080,
+} = process.env;
 
-  ws.on('message', async (data) => {
-    let msg;
-    try {
-      msg = JSON.parse(data); // Twilio sends JSON
-    } catch (err) {
-      console.error(" Invalid JSON received:", err);
-      return;
-    }
+if (!ELEVENLABS_API_KEY || !ELEVENLABS_AGENT_ID) {
+  console.error('Missing required environment variables');
+  process.exit(1);
+}
 
-    if (msg.event === 'media' && msg.media && msg.media.payload) {
-      const audioBuffer = Buffer.from(msg.media.payload, 'base64');
-      audioStream.push(audioBuffer);
-
-      try {
-        const transcribedText = await transcribeAudio(audioStream);
-        console.log(" Transcribed text:", transcribedText);
-
-        const responseText = await generateAIResponse(transcribedText);
-        const audioResponse = await textToSpeech(responseText);
-
-        // Send base64-encoded audio back to client
-        ws.send(audioResponse.toString('base64'));
-        audioStream = []; // Clear after response (or debounce)
-      } catch (err) {
-        console.error(" Error in pipeline:", err);
-        ws.send("Error processing audio.");
-      }
-    }
-  });
-
-  ws.on('close', () => console.log('❎ Client disconnected'));
-  ws.on('error', (error) => console.error('WebSocket error:', error));
+const wss = new WebSocket.Server({ host: '0.0.0.0', port: PORT }, () => {
+  console.log(`[Server] WebSocket server listening on ws://0.0.0.0:${PORT}`);
 });
 
-async function transcribeAudio(audioBuffers) {
-  // TODO: Combine & send to real ASR (e.g., Deepgram, Whisper)
-  return "Hello, how can I assist you today?";
-}
-
-async function generateAIResponse(text) {
-  // TODO: Use OpenAI API (or other) here
-  return `The AI says: I can assist you with that!`;
-}
-
-async function textToSpeech(text) {
-  const voiceId = process.env.ELEVENLABS_VOICE_ID; // e.g. "EXAVITQu4vr4xnSDxMaL"
-  const apiKey = process.env.ELEVENLABS_API_KEY;
-
-  const response = await axios.post(
-    `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
+// Get a signed URL from ElevenLabs
+async function getSignedUrl() {
+  const res = await fetch(
+    `https://api.elevenlabs.io/v1/convai/conversation/get_signed_url?agent_id=${ELEVENLABS_AGENT_ID}`,
     {
-      text,
-      model_id: "eleven_multilingual_v2",
-      voice_settings: {
-        stability: 0.5,
-        similarity_boost: 0.75
-      }
-    },
-    {
-      headers: {
-        'xi-api-key': apiKey,
-        'Content-Type': 'application/json'
-      },
-      responseType: 'arraybuffer' // binary audio
+      headers: { 'xi-api-key': ELEVENLABS_API_KEY },
     }
   );
 
-  return Buffer.from(response.data);
+  if (!res.ok) throw new Error(`Failed to get signed URL: ${res.statusText}`);
+  const { signed_url } = await res.json();
+  return signed_url;
 }
 
-console.log(` WebSocket server listening on ws://localhost:${PORT}`);
+wss.on('connection', async (ws) => {
+  console.log('[Twilio] WebSocket connected');
+
+  let streamSid = null;
+  let elevenWs = null;
+  let customParameters = null;
+
+  try {
+    const signedUrl = await getSignedUrl();
+    elevenWs = new WebSocket(signedUrl);
+
+    elevenWs.on('open', () => {
+      console.log('[ElevenLabs] Connected');
+
+      const initialConfig = {
+        type: 'conversation_initiation_client_data',
+        dynamic_variables: {
+          user_name: 'Angelo',
+          user_id: 1234,
+        },
+        conversation_config_override: {
+          agent: {
+            prompt: {
+              prompt: customParameters?.prompt || 'You are Gary from the phone store.',
+            },
+            first_message: customParameters?.first_message || 'Hey there! How can I help you today?',
+          },
+        },
+      };
+
+      elevenWs.send(JSON.stringify(initialConfig));
+    });
+
+    elevenWs.on('message', (data) => {
+      try {
+        const message = JSON.parse(data);
+
+        if (message.type === 'audio') {
+          const payload = message.audio?.chunk || message.audio_event?.audio_base_64;
+          if (payload && streamSid) {
+            ws.send(JSON.stringify({
+              event: 'media',
+              streamSid,
+              media: { payload },
+            }));
+          }
+        }
+
+        if (message.type === 'interruption') {
+          ws.send(JSON.stringify({ event: 'clear', streamSid }));
+        }
+
+        if (message.type === 'ping') {
+          elevenWs.send(JSON.stringify({
+            type: 'pong',
+            event_id: message.ping_event?.event_id,
+          }));
+        }
+      } catch (err) {
+        console.error('[ElevenLabs] Message error:', err);
+      }
+    });
+
+    elevenWs.on('close', () => {
+      console.log('[ElevenLabs] Disconnected');
+    });
+
+    elevenWs.on('error', (err) => {
+      console.error('[ElevenLabs] WebSocket error:', err);
+    });
+  } catch (err) {
+    console.error('[ElevenLabs] Failed to connect:', err);
+    ws.close();
+  }
+
+  // Handle messages from Twilio
+  ws.on('message', (msg) => {
+    try {
+      const message = JSON.parse(msg);
+
+      switch (message.event) {
+        case 'start':
+          streamSid = message.start.streamSid;
+          customParameters = message.start.customParameters;
+          console.log(`[Twilio] Start stream: ${streamSid}`);
+          break;
+
+        case 'media':
+          if (elevenWs?.readyState === WebSocket.OPEN) {
+            elevenWs.send(JSON.stringify({
+              user_audio_chunk: Buffer.from(message.media.payload, 'base64').toString('base64'),
+            }));
+          }
+          break;
+
+        case 'stop':
+          console.log(`[Twilio] Stop stream: ${streamSid}`);
+          if (elevenWs?.readyState === WebSocket.OPEN) elevenWs.close();
+          break;
+
+        default:
+          console.log('[Twilio] Unknown event:', message.event);
+      }
+    } catch (err) {
+      console.error('[Twilio] Message error:', err);
+    }
+  });
+
+  ws.on('close', () => {
+    console.log('[Twilio] WebSocket closed');
+    if (elevenWs?.readyState === WebSocket.OPEN) elevenWs.close();
+  });
+
+  ws.on('error', console.error);
+});

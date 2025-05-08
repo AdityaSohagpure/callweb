@@ -1,16 +1,17 @@
 {
   "name": "server2",
   "version": "1.0.0",
-  "main": "index.js",
+  "description": "WebSocket server for Twilio & ElevenLabs",
+  "main": "websocket-server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node websocket-server.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "",
   "dependencies": {
-    "axios": "^1.9.0",
-    "ws": "^8.18.2"
-  }
+    "dotenv": "^16.3.1",
+    "ws": "^8.13.0",
+    "node-fetch": "^3.3.2"
+  },
+  "devDependencies": {},
+  "author": "aditya sohagpure",
+  "license": "MIT"
 }

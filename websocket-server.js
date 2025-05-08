@@ -13,7 +13,7 @@ if (!ELEVENLABS_API_KEY || !ELEVENLABS_AGENT_ID) {
   process.exit(1);
 }
 
-const wss = new WebSocket.Server({ host: '0.0.0.0', port: PORT }, () => {
+const wss = new WebSocketServer({ host: '0.0.0.0', port: PORT }, () => {
   console.log(`[Server] WebSocket server listening on ws://0.0.0.0:${PORT}`);
 });
 

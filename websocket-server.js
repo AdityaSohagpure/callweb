@@ -1,47 +1,11 @@
-import dotenv from 'dotenv';
 import { WebSocketServer, WebSocket } from 'ws';
 import fetch from 'node-fetch';
-
-dotenv.config();
+import { encode } from 'pcm-to-mulaw'; // μ-law encoding
+import Sox from 'sox-stream';  // For downsampling PCM (from 16kHz to 8kHz)
 
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
 const ELEVENLABS_AGENT_ID = process.env.ELEVENLABS_AGENT_ID;
 const PORT = process.env.PORT || 8000;
-
-if (!ELEVENLABS_API_KEY || !ELEVENLABS_AGENT_ID) {
-  console.error('Missing required environment variables');
-  process.exit(1);
-}
-
-// μ-law encoding helpers
-function linearToMuLawSample(sample) {
-  const MULAW_MAX = 0x1FFF;
-  const MULAW_BIAS = 33;
-  const CLIP = 32635;
-
-  sample = Math.max(-CLIP, Math.min(CLIP, sample));
-  const sign = (sample >> 8) & 0x80;
-  if (sign !== 0) sample = -sample;
-
-  sample = sample + MULAW_BIAS;
-  let exponent = 7;
-  for (let expMask = 0x4000; (sample & expMask) === 0 && exponent > 0; expMask >>= 1) {
-    exponent--;
-  }
-
-  const mantissa = (sample >> ((exponent === 0) ? 4 : (exponent + 3))) & 0x0F;
-  const muLawByte = ~(sign | (exponent << 4) | mantissa);
-  return muLawByte;
-}
-
-function pcmToMulaw(pcmBuffer) {
-  const mulawBuffer = Buffer.alloc(pcmBuffer.length / 2);
-  for (let i = 0; i < pcmBuffer.length; i += 2) {
-    const sample = pcmBuffer.readInt16LE(i);
-    mulawBuffer[i / 2] = linearToMuLawSample(sample);
-  }
-  return mulawBuffer;
-}
 
 const wss = new WebSocketServer({ host: '0.0.0.0', port: PORT }, () => {
   console.log(`[Server] WebSocket server listening on ws://0.0.0.0:${PORT}`);
@@ -52,7 +16,6 @@ async function getSignedUrl() {
     `https://api.elevenlabs.io/v1/convai/conversation/get_signed_url?agent_id=${ELEVENLABS_AGENT_ID}`,
     { headers: { 'xi-api-key': ELEVENLABS_API_KEY } }
   );
-
   if (!res.ok) throw new Error(`Failed to get signed URL: ${res.statusText}`);
   const { signed_url } = await res.json();
   return signed_url;
@@ -97,16 +60,19 @@ wss.on('connection', async (ws) => {
 
         if (message.type === 'audio') {
           const base64Pcm = message.audio?.chunk || message.audio_event?.audio_base_64;
+          
           if (base64Pcm && streamSid) {
             const pcmBuffer = Buffer.from(base64Pcm, 'base64');
-            const mulawBuffer = pcmToMulaw(pcmBuffer);
-            const payload = mulawBuffer.toString('base64');
 
-            ws.send(JSON.stringify({
-              event: 'media',
-              streamSid,
-              media: { payload },
-            }));
+            // Downsample PCM from 16kHz to 8kHz
+            const downsampledPcmBuffer = downsamplePcm(pcmBuffer, 16000, 8000);
+
+            // Convert PCM to μ-law
+            const muLawBuffer = encode(downsampledPcmBuffer);
+
+            // Send μ-law audio to Twilio
+            const payload = muLawBuffer.toString('base64');
+            ws.send(JSON.stringify({ event: 'media', streamSid, media: { payload } }));
           }
         }
 
@@ -115,10 +81,7 @@ wss.on('connection', async (ws) => {
         }
 
         if (message.type === 'ping') {
-          elevenWs.send(JSON.stringify({
-            type: 'pong',
-            event_id: message.ping_event?.event_id,
-          }));
+          elevenWs.send(JSON.stringify({ type: 'pong', event_id: message.ping_event?.event_id }));
         }
       } catch (err) {
         console.error('[ElevenLabs] Message error:', err);
@@ -137,10 +100,10 @@ wss.on('connection', async (ws) => {
     ws.close();
   }
 
+  // Handle messages from Twilio
   ws.on('message', (msg) => {
     try {
       const message = JSON.parse(msg);
-
       switch (message.event) {
         case 'start':
           streamSid = message.start.streamSid;
@@ -150,9 +113,11 @@ wss.on('connection', async (ws) => {
 
         case 'media':
           if (elevenWs?.readyState === WebSocket.OPEN) {
-            elevenWs.send(JSON.stringify({
-              user_audio_chunk: message.media.payload, // base64 PCM
-            }));
+            elevenWs.send(
+              JSON.stringify({
+                user_audio_chunk: message.media.payload, // already base64
+              })
+            );
           }
           break;
 
@@ -176,3 +141,10 @@ wss.on('connection', async (ws) => {
 
   ws.on('error', console.error);
 });
+
+// Function to downsample PCM (e.g., from 16kHz to 8kHz)
+function downsamplePcm(pcmBuffer, inputSampleRate, outputSampleRate) {
+  const stream = Sox();
+  const resample = stream.resample(inputSampleRate, outputSampleRate);
+  return Buffer.concat([stream.write(pcmBuffer), resample.finish()]);
+}

@@ -1,7 +1,8 @@
 import dotenv from 'dotenv';
-import { WebSocketServer, WebSocket } from 'ws'; // ✅ Import BOTH
+import { WebSocketServer, WebSocket } from 'ws';
 import fetch from 'node-fetch';
-// Load environment variables
+import mulaw from 'pcm-to-mulaw';
+
 dotenv.config();
 
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
@@ -17,13 +18,10 @@ const wss = new WebSocketServer({ host: '0.0.0.0', port: PORT }, () => {
   console.log(`[Server] WebSocket server listening on ws://0.0.0.0:${PORT}`);
 });
 
-// Get a signed URL from ElevenLabs
 async function getSignedUrl() {
   const res = await fetch(
     `https://api.elevenlabs.io/v1/convai/conversation/get_signed_url?agent_id=${ELEVENLABS_AGENT_ID}`,
-    {
-      headers: { 'xi-api-key': ELEVENLABS_API_KEY },
-    }
+    { headers: { 'xi-api-key': ELEVENLABS_API_KEY } }
   );
 
   if (!res.ok) throw new Error(`Failed to get signed URL: ${res.statusText}`);
@@ -56,7 +54,8 @@ wss.on('connection', async (ws) => {
             prompt: {
               prompt: customParameters?.prompt || 'You are Gary from the phone store.',
             },
-            first_message: customParameters?.first_message || 'Hey there! How can I help you today?',
+            first_message:
+              customParameters?.first_message || 'Hey there! How can I help you today?',
           },
         },
       };
@@ -69,13 +68,21 @@ wss.on('connection', async (ws) => {
         const message = JSON.parse(data);
 
         if (message.type === 'audio') {
-          const payload = message.audio?.chunk || message.audio_event?.audio_base_64;
-          if (payload && streamSid) {
-            ws.send(JSON.stringify({
-              event: 'media',
-              streamSid,
-              media: { payload },
-            }));
+          const base64Pcm =
+            message.audio?.chunk || message.audio_event?.audio_base_64;
+
+          if (base64Pcm && streamSid) {
+            const pcmBuffer = Buffer.from(base64Pcm, 'base64');
+            const mulawBuffer = Buffer.from(mulaw.encode(pcmBuffer));
+            const payload = mulawBuffer.toString('base64');
+
+            ws.send(
+              JSON.stringify({
+                event: 'media',
+                streamSid,
+                media: { payload },
+              })
+            );
           }
         }
 
@@ -84,10 +91,12 @@ wss.on('connection', async (ws) => {
         }
 
         if (message.type === 'ping') {
-          elevenWs.send(JSON.stringify({
-            type: 'pong',
-            event_id: message.ping_event?.event_id,
-          }));
+          elevenWs.send(
+            JSON.stringify({
+              type: 'pong',
+              event_id: message.ping_event?.event_id,
+            })
+          );
         }
       } catch (err) {
         console.error('[ElevenLabs] Message error:', err);
@@ -106,7 +115,6 @@ wss.on('connection', async (ws) => {
     ws.close();
   }
 
-  // Handle messages from Twilio
   ws.on('message', (msg) => {
     try {
       const message = JSON.parse(msg);
@@ -120,9 +128,11 @@ wss.on('connection', async (ws) => {
 
         case 'media':
           if (elevenWs?.readyState === WebSocket.OPEN) {
-            elevenWs.send(JSON.stringify({
-              user_audio_chunk: Buffer.from(message.media.payload, 'base64').toString('base64'),
-            }));
+            elevenWs.send(
+              JSON.stringify({
+                user_audio_chunk: message.media.payload, // already base64
+              })
+            );
           }
           break;
 

@@ -7,18 +7,13 @@ dotenv.config();
 
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
 const ELEVENLABS_AGENT_ID = process.env.ELEVENLABS_AGENT_ID;
-
 const PORT = process.env.PORT || 8000;
 
-
-if (
-  !ELEVENLABS_API_KEY ||
-  !ELEVENLABS_AGENT_ID 
- 
-) {
+if (!ELEVENLABS_API_KEY || !ELEVENLABS_AGENT_ID) {
   console.error('Missing required environment variables');
   process.exit(1);
 }
+
 const wss = new WebSocket.Server({ host: '0.0.0.0', port: PORT }, () => {
   console.log(`[Server] WebSocket server listening on ws://0.0.0.0:${PORT}`);
 });

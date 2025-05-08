@@ -1,6 +1,7 @@
 {
   "name": "server2",
   "version": "1.0.0",
+  "type": "module",
   "description": "WebSocket server for Twilio & ElevenLabs",
   "main": "websocket-server.js",
   "scripts": {

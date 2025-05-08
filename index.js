@@ -1,71 +1,82 @@
+require('dotenv').config();
 const WebSocket = require('ws');
 const axios = require('axios');
-const fs = require('fs');
 
-const wss = new WebSocket.Server({ host: '0.0.0.0', port: process.env.PORT || 8080 });
+const PORT = process.env.PORT || 8080;
+const wss = new WebSocket.Server({ host: '0.0.0.0', port: PORT });
 
 wss.on('connection', (ws) => {
-  console.log('Client connected');
-
+  console.log('🔗 Client connected');
   let audioStream = [];
 
-  // Listen for incoming messages (audio data)
   ws.on('message', async (data) => {
-    console.log('Received audio data from Twilio');
-    audioStream.push(data); // Accumulate the incoming data (audio stream)
-
+    let msg;
     try {
-      // Process the audio stream (e.g., convert to text with Whisper API)
-      const transcribedText = await transcribeAudio(audioStream);
-      console.log("Transcribed text:", transcribedText);
+      msg = JSON.parse(data); // Twilio sends JSON
+    } catch (err) {
+      console.error(" Invalid JSON received:", err);
+      return;
+    }
 
-      // Send the text to AI (e.g., GPT-4 for response generation)
-      const responseText = await generateAIResponse(transcribedText);
+    if (msg.event === 'media' && msg.media && msg.media.payload) {
+      const audioBuffer = Buffer.from(msg.media.payload, 'base64');
+      audioStream.push(audioBuffer);
 
-      // Convert response text to speech using ElevenLabs API
-      const audioResponse = await textToSpeech(responseText);
+      try {
+        const transcribedText = await transcribeAudio(audioStream);
+        console.log(" Transcribed text:", transcribedText);
 
-      // Send the audio response back to the client (Twilio)
-      ws.send(audioResponse);
-    } catch (error) {
-      console.error("Error processing audio:", error);
-      ws.send("Error occurred while processing audio.");
+        const responseText = await generateAIResponse(transcribedText);
+        const audioResponse = await textToSpeech(responseText);
+
+        // Send base64-encoded audio back to client
+        ws.send(audioResponse.toString('base64'));
+        audioStream = []; // Clear after response (or debounce)
+      } catch (err) {
+        console.error(" Error in pipeline:", err);
+        ws.send("Error processing audio.");
+      }
     }
   });
 
-  ws.on('close', () => {
-    console.log('Client disconnected');
-  });
-
-  ws.on('error', (error) => {
-    console.error('WebSocket error:', error);
-  });
+  ws.on('close', () => console.log('❎ Client disconnected'));
+  ws.on('error', (error) => console.error('WebSocket error:', error));
 });
 
-// Helper functions for ASR, AI, and TTS
-
-async function transcribeAudio(audioStream) {
-  // Example of transcription service (e.g., Whisper, Deepgram)
-  // Send audio stream to transcription API and get transcribed text
+async function transcribeAudio(audioBuffers) {
+  // TODO: Combine & send to real ASR (e.g., Deepgram, Whisper)
   return "Hello, how can I assist you today?";
 }
 
 async function generateAIResponse(text) {
-  // Use GPT-4 or another AI service to generate a response
+  // TODO: Use OpenAI API (or other) here
   return `The AI says: I can assist you with that!`;
 }
 
 async function textToSpeech(text) {
-  // Example: Make a POST request to ElevenLabs' TTS API
-  const response = await axios.post('https://api.elevenlabs.io/v1/text-to-speech', {
-    text: text,
-    voice: 'en_us_male_voice',  // Choose a voice option
-    apiKey: 'your-elevenlabs-api-key',
-  });
+  const voiceId = process.env.ELEVENLABS_VOICE_ID; // e.g. "EXAVITQu4vr4xnSDxMaL"
+  const apiKey = process.env.ELEVENLABS_API_KEY;
 
-  return response.data.audioContent;  // Audio response (in binary or buffer format)
+  const response = await axios.post(
+    `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
+    {
+      text,
+      model_id: "eleven_multilingual_v2",
+      voice_settings: {
+        stability: 0.5,
+        similarity_boost: 0.75
+      }
+    },
+    {
+      headers: {
+        'xi-api-key': apiKey,
+        'Content-Type': 'application/json'
+      },
+      responseType: 'arraybuffer' // binary audio
+    }
+  );
+
+  return Buffer.from(response.data);
 }
 
-console.log("WebSocket server listening on ws://localhost:8080");
-
-
+console.log(` WebSocket server listening on ws://localhost:${PORT}`);

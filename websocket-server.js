@@ -27,6 +27,7 @@ async function getSignedUrl() {
 
   if (!res.ok) throw new Error(`Failed to get signed URL: ${res.statusText}`);
   const { signed_url } = await res.json();
+   console.log('got signed_url')
   return signed_url;
 }
 

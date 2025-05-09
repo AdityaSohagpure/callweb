@@ -93,7 +93,7 @@ wss.on('connection', async (twilioWs) => {
     });
 
     elevenWs.on('message', (data) => {
-      console.log('[📩 ElevenLabs Raw]', data.toString());
+      console.log('[📩 ElevenLabs Raw]');
 
       try {
         const message = JSON.parse(data);

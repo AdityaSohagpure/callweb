@@ -17,36 +17,18 @@ const wss = new WebSocketServer({ host: '0.0.0.0', port: PORT }, () => {
   console.log(`[🌐 Server] Listening on ws://0.0.0.0:${PORT}`);
 });
 
-// async function getSignedUrl() {
-//   const res = await fetch(
-//     `https://api.elevenlabs.io/v1/convai/conversation/get_signed_url?agent_id=${ELEVENLABS_AGENT_ID}`,
-//     {
-//       headers: { 'xi-api-key': ELEVENLABS_API_KEY },
-//     }
-//   );
-
-//   if (!res.ok) throw new Error(`Failed to get signed URL: ${res.statusText}`);
-//   const { signed_url } = await res.json();
-//    console.log('got signed_url')
-//   return signed_url;
-// }
-
 async function getSignedUrl() {
-  console.log("getsignedUrl start");
+  console.log('getsignedUrl start');
   try {
     const response = await fetch(
       `https://api.elevenlabs.io/v1/convai/conversation/get_signed_url?agent_id=${ELEVENLABS_AGENT_ID}`,
       {
         method: 'GET',
-        headers: {
-          'xi-api-key': ELEVENLABS_API_KEY,
-        },
+        headers: { 'xi-api-key': ELEVENLABS_API_KEY },
       }
     );
 
     if (!response.ok) {
-      console.log('Failed to get signed URL: ${response.statusText}');
-
       throw new Error(`Failed to get signed URL: ${response.statusText}`);
     }
 
@@ -57,147 +39,144 @@ async function getSignedUrl() {
     throw error;
   }
 }
-wss.on('connection', async (twilioWs) => {
+
+wss.on('connection', (twilioWs) => {
   console.log('[🔗 Twilio] Client connected');
 
   let streamSid = null;
   let customParameters = null;
-  let elevenWs;
+  let elevenWs = null;
 
-  try {
-    const signedUrl = await getSignedUrl();
-    console.log('[🔗 Connecting to ElevenLabs]:', signedUrl);
-
-    elevenWs = new WebSocket(signedUrl);
-
-    elevenWs.on('open', () => {
-      console.log('[ ElevenLabs] Connected  ✅');
-
-      const config = {
-        type: 'conversation_initiation_client_data',
-        dynamic_variables: {
-          user_name: 'Caller',
-          user_id: Date.now()
-        },
-        conversation_config_override: {
-          agent: {
-            prompt: {
-              prompt: customParameters?.prompt || 'You are Gary from the phone store.',
-            },
-            first_message: customParameters?.first_message || 'Hey there! How can I help you today?',
-          },
-        }
-      };
-
-      elevenWs.send(JSON.stringify(config));
-    });
-
-   elevenWs.on('message', (data) => {
-          try {
-            const message = JSON.parse(data);
-
-            switch (message.type) {
-              case 'conversation_initiation_metadata':
-                console.log('[ElevenLabs] Received initiation metadata');
-                break;
-
-              case 'audio':
-                if (streamSid) {
-                  if (message.audio?.chunk) {
-                    const audioData = {
-                      event: 'media',
-                      streamSid,
-                      media: {
-                        payload: message.audio.chunk,
-                      },
-                    };
-                   twilioWs.send(JSON.stringify(audioData));
-                  } else if (message.audio_event?.audio_base_64) {
-                    const audioData = {
-                      event: 'media',
-                      streamSid,
-                      media: {
-                        payload: message.audio_event.audio_base_64,
-                      },
-                    };
-                   twilioWs.send(JSON.stringify(audioData));
-                  }
-                } else {
-                  console.log('[ElevenLabs] Received audio but no  StreamSid yet');
-                }
-                break;
-
-              case 'interruption':
-                if (streamSid) {
-                 twilioWs.send(
-                    JSON.stringify({
-                      event: 'clear',
-                      streamSid,
-                    })
-                  );
-                }
-                break;
-
-              case 'ping':
-                if (message.ping_event?.event_id) {
-                  elevenWs.send(
-                    JSON.stringify({
-                      type: 'pong',
-                      event_id: message.ping_event.event_id,
-                    })
-                  );
-                }
-                break;
-
-              case 'agent_response':
-                console.log(
-                  `[Twilio] Agent response: ${message.agent_response_event?.agent_response}`
-                );
-                break;
-
-              case 'user_transcript':
-                console.log(
-                  `[Twilio] User transcript: ${message.user_transcription_event?.user_transcript}`
-                );
-                break;
-
-              default:
-                console.log(`[ElevenLabs] Unhandled message type: ${message.type}`);
-            }
-          } catch (error) {
-            console.error('[ElevenLabs] Error processing message:', error);
-          }
-        });
-    elevenWs.on('close', (code, reason) => {
-      console.log(`[🔌 ElevenLabs] Disconnected ❌ code=${code}, reason=${reason}`);
-    });
-
-    elevenWs.on('error', (err) => {
-      console.error('[💥 ElevenLabs] WebSocket Error:', err);
-    });
-
-  } catch (err) {
-    console.error('[🚨 ElevenLabs] Failed to connect:', err);
-    twilioWs.close();
-  }
-
-  // 📞 Handle Twilio events
-  twilioWs.on('message', (msg) => {
+  twilioWs.on('message', async (msg) => {
     try {
       const message = JSON.parse(msg);
-     
+
       switch (message.event) {
         case 'start':
           streamSid = message.start.streamSid;
           customParameters = message.start.customParameters || {};
           console.log(`[▶️ Twilio] Start stream: ${streamSid}`);
+
+          try {
+            const signedUrl = await getSignedUrl();
+            console.log('[🔗 Connecting to ElevenLabs]:', signedUrl);
+
+            elevenWs = new WebSocket(signedUrl);
+
+            elevenWs.on('open', () => {
+              console.log('[ ElevenLabs] Connected ✅');
+
+              const config = {
+                type: 'conversation_initiation_client_data',
+                dynamic_variables: {
+                  user_name: 'Caller',
+                  user_id: Date.now(),
+                },
+                conversation_config_override: {
+                  agent: {
+                    prompt: {
+                      prompt: customParameters?.prompt || 'You are Gary from the phone store.',
+                    },
+                    first_message:
+                      customParameters?.first_message ||
+                      'Hey there! How can I help you today?',
+                  },
+                },
+              };
+
+              elevenWs.send(JSON.stringify(config));
+            });
+
+            elevenWs.on('message', (data) => {
+              try {
+                const message = JSON.parse(data);
+
+                switch (message.type) {
+                  case 'conversation_initiation_metadata':
+                    console.log('[ElevenLabs] Received initiation metadata');
+                    break;
+
+                  case 'audio':
+                    if (streamSid) {
+                      const payload =
+                        message.audio?.chunk || message.audio_event?.audio_base_64;
+                      if (payload) {
+                        twilioWs.send(
+                          JSON.stringify({
+                            event: 'media',
+                            streamSid,
+                            media: { payload },
+                          })
+                        );
+                      }
+                    } else {
+                      console.log('[ElevenLabs] Received audio but no StreamSid yet');
+                    }
+                    break;
+
+                  case 'interruption':
+                    if (streamSid) {
+                      twilioWs.send(
+                        JSON.stringify({
+                          event: 'clear',
+                          streamSid,
+                        })
+                      );
+                    }
+                    break;
+
+                  case 'ping':
+                    if (message.ping_event?.event_id) {
+                      elevenWs.send(
+                        JSON.stringify({
+                          type: 'pong',
+                          event_id: message.ping_event.event_id,
+                        })
+                      );
+                    }
+                    break;
+
+                  case 'agent_response':
+                    console.log(
+                      `[Twilio] Agent response: ${message.agent_response_event?.agent_response}`
+                    );
+                    break;
+
+                  case 'user_transcript':
+                    console.log(
+                      `[Twilio] User transcript: ${message.user_transcription_event?.user_transcript}`
+                    );
+                    break;
+
+                  default:
+                    console.log(`[ElevenLabs] Unhandled message type: ${message.type}`);
+                }
+              } catch (err) {
+                console.error('[⚠️ ElevenLabs] Message parse error:', err);
+              }
+            });
+
+            elevenWs.on('close', (code, reason) => {
+              console.log(`[🔌 ElevenLabs] Disconnected ❌ code=${code}, reason=${reason}`);
+            });
+
+            elevenWs.on('error', (err) => {
+              console.error('[💥 ElevenLabs] WebSocket Error:', err);
+            });
+          } catch (err) {
+            console.error('[🚨 ElevenLabs] Failed to connect:', err);
+            twilioWs.close();
+          }
+
           break;
 
         case 'media':
           if (elevenWs?.readyState === WebSocket.OPEN) {
-            elevenWs.send(JSON.stringify({
-              user_audio_chunk: message.media.payload
-            }));
+            elevenWs.send(
+              JSON.stringify({
+                user_audio_chunk: message.media.payload,
+              })
+            );
           }
           break;
 

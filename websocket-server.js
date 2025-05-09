@@ -92,50 +92,82 @@ wss.on('connection', async (twilioWs) => {
       elevenWs.send(JSON.stringify(config));
     });
 
-    elevenWs.on('message', (data) => {
-      console.log('[📩 ElevenLabs Raw]');
+   elevenLabsWs.on('message', (data) => {
+          try {
+            const message = JSON.parse(data);
 
-      try {
-        const message = JSON.parse(data);
+            switch (message.type) {
+              case 'conversation_initiation_metadata':
+                console.log('[ElevenLabs] Received initiation metadata');
+                break;
 
-        // 🧠 Audio Response
-       if (base64Payload && streamSid) {
-  console.log('[📤 Forwarding audio to Twilio]');
-  twilioWs.send(JSON.stringify({
-    event: 'media',
-    streamSid,
-    media: { payload: base64Payload }
-  }));
-}
+              case 'audio':
+                if (streamSid) {
+                  if (message.audio?.chunk) {
+                    const audioData = {
+                      event: 'media',
+                      streamSid,
+                      media: {
+                        payload: message.audio.chunk,
+                      },
+                    };
+                    ws.send(JSON.stringify(audioData));
+                  } else if (message.audio_event?.audio_base_64) {
+                    const audioData = {
+                      event: 'media',
+                      streamSid,
+                      media: {
+                        payload: message.audio_event.audio_base_64,
+                      },
+                    };
+                    ws.send(JSON.stringify(audioData));
+                  }
+                } else {
+                  console.log('[ElevenLabs] Received audio but no StreamSid yet');
+                }
+                break;
 
-        // 📝 Transcript
-        if (message.type === 'transcript_response') {
-          const transcript = message.transcript?.[0]?.content;
-          if (transcript) {
-            console.log(`[📝 Transcript] ${transcript}`);
-          } else {
-            console.log('[📝 Transcript] Empty transcript received');
+              case 'interruption':
+                if (streamSid) {
+                  ws.send(
+                    JSON.stringify({
+                      event: 'clear',
+                      streamSid,
+                    })
+                  );
+                }
+                break;
+
+              case 'ping':
+                if (message.ping_event?.event_id) {
+                  elevenLabsWs.send(
+                    JSON.stringify({
+                      type: 'pong',
+                      event_id: message.ping_event.event_id,
+                    })
+                  );
+                }
+                break;
+
+              case 'agent_response':
+                console.log(
+                  `[Twilio] Agent response: ${message.agent_response_event?.agent_response}`
+                );
+                break;
+
+              case 'user_transcript':
+                console.log(
+                  `[Twilio] User transcript: ${message.user_transcription_event?.user_transcript}`
+                );
+                break;
+
+              default:
+                console.log(`[ElevenLabs] Unhandled message type: ${message.type}`);
+            }
+          } catch (error) {
+            console.error('[ElevenLabs] Error processing message:', error);
           }
-        }
-
-        // 🔁 Interruption
-        if (message.type === 'interruption') {
-          twilioWs.send(JSON.stringify({ event: 'clear', streamSid }));
-        }
-
-        // 🔄 Ping/Pong
-        if (message.type === 'ping') {
-          elevenWs.send(JSON.stringify({
-            type: 'pong',
-            event_id: message.ping_event?.event_id,
-          }));
-        }
-
-      } catch (err) {
-        console.error('[⚠️ ElevenLabs] Message parse error:', err);
-      }
-    });
-
+        });
     elevenWs.on('close', (code, reason) => {
       console.log(`[🔌 ElevenLabs] Disconnected ❌ code=${code}, reason=${reason}`);
     });

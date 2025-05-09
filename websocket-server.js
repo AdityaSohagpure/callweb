@@ -92,7 +92,7 @@ wss.on('connection', async (twilioWs) => {
       elevenWs.send(JSON.stringify(config));
     });
 
-   elevenLabsWs.on('message', (data) => {
+   elevensWs.on('message', (data) => {
           try {
             const message = JSON.parse(data);
 
@@ -140,7 +140,7 @@ wss.on('connection', async (twilioWs) => {
 
               case 'ping':
                 if (message.ping_event?.event_id) {
-                  elevenLabsWs.send(
+                  elevenWs.send(
                     JSON.stringify({
                       type: 'pong',
                       event_id: message.ping_event.event_id,

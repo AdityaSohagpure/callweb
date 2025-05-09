@@ -71,7 +71,7 @@ wss.on('connection', async (twilioWs) => {
     elevenWs = new WebSocket(signedUrl);
 
     elevenWs.on('open', () => {
-      console.log('[🧠 ElevenLabs] Connected ✅');
+      console.log('[ ElevenLabs] Connected ✅');
 
       const config = {
         type: 'conversation_initiation_client_data',

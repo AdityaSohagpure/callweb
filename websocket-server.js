@@ -17,20 +17,45 @@ const wss = new WebSocketServer({ host: '0.0.0.0', port: PORT }, () => {
   console.log(`[🌐 Server] Listening on ws://0.0.0.0:${PORT}`);
 });
 
+// async function getSignedUrl() {
+//   const res = await fetch(
+//     `https://api.elevenlabs.io/v1/convai/conversation/get_signed_url?agent_id=${ELEVENLABS_AGENT_ID}`,
+//     {
+//       headers: { 'xi-api-key': ELEVENLABS_API_KEY },
+//     }
+//   );
+
+//   if (!res.ok) throw new Error(`Failed to get signed URL: ${res.statusText}`);
+//   const { signed_url } = await res.json();
+//    console.log('got signed_url')
+//   return signed_url;
+// }
+
 async function getSignedUrl() {
-  const res = await fetch(
-    `https://api.elevenlabs.io/v1/convai/conversation/get_signed_url?agent_id=${ELEVENLABS_AGENT_ID}`,
-    {
-      headers: { 'xi-api-key': ELEVENLABS_API_KEY },
+  try {
+    const response = await fetch(
+      `https://api.elevenlabs.io/v1/convai/conversation/get_signed_url?agent_id=${ELEVENLABS_AGENT_ID}`,
+      {
+        method: 'GET',
+        headers: {
+          'xi-api-key': ELEVENLABS_API_KEY,
+        },
+      }
+    );
+
+    if (!response.ok) {
+      console.log('Failed to get signed URL: ${response.statusText}')
+
+      throw new Error(`Failed to get signed URL: ${response.statusText}`);
     }
-  );
 
-  if (!res.ok) throw new Error(`Failed to get signed URL: ${res.statusText}`);
-  const { signed_url } = await res.json();
-   console.log('got signed_url')
-  return signed_url;
+    const data = await response.json();
+    return data.signed_url;
+  } catch (error) {
+    console.error('Error getting signed URL:', error);
+    throw error;
+  }
 }
-
 wss.on('connection', async (twilioWs) => {
   console.log('[🔗 Twilio] Client connected');
 

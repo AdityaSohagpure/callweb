@@ -99,16 +99,14 @@ wss.on('connection', async (twilioWs) => {
         const message = JSON.parse(data);
 
         // 🧠 Audio Response
-        if (message.type === 'audio') {
-          const base64Payload = message.audio?.chunk || message.audio_event?.audio_base_64;
-          if (base64Payload && streamSid) {
-            twilioWs.send(JSON.stringify({
-              event: 'media',
-              streamSid,
-              media: { payload: base64Payload }
-            }));
-          }
-        }
+       if (base64Payload && streamSid) {
+  console.log('[📤 Forwarding audio to Twilio]');
+  twilioWs.send(JSON.stringify({
+    event: 'media',
+    streamSid,
+    media: { payload: base64Payload }
+  }));
+}
 
         // 📝 Transcript
         if (message.type === 'transcript_response') {

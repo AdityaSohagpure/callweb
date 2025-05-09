@@ -123,7 +123,7 @@ wss.on('connection', async (twilioWs) => {
                     ws.send(JSON.stringify(audioData));
                   }
                 } else {
-                  console.log('[ElevenLabs] Received audio but no StreamSid yet');
+                  console.log('[ElevenLabs] Received audio but no  StreamSid yet');
                 }
                 break;
 

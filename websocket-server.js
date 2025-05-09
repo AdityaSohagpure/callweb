@@ -111,7 +111,7 @@ wss.on('connection', async (twilioWs) => {
                         payload: message.audio.chunk,
                       },
                     };
-                    ws.send(JSON.stringify(audioData));
+                   twilioWs.send(JSON.stringify(audioData));
                   } else if (message.audio_event?.audio_base_64) {
                     const audioData = {
                       event: 'media',
@@ -120,7 +120,7 @@ wss.on('connection', async (twilioWs) => {
                         payload: message.audio_event.audio_base_64,
                       },
                     };
-                    ws.send(JSON.stringify(audioData));
+                   twilioWs.send(JSON.stringify(audioData));
                   }
                 } else {
                   console.log('[ElevenLabs] Received audio but no  StreamSid yet');
@@ -129,7 +129,7 @@ wss.on('connection', async (twilioWs) => {
 
               case 'interruption':
                 if (streamSid) {
-                  ws.send(
+                 twilioWs.send(
                     JSON.stringify({
                       event: 'clear',
                       streamSid,

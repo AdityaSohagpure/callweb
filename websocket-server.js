@@ -32,6 +32,7 @@ const wss = new WebSocketServer({ host: '0.0.0.0', port: PORT }, () => {
 // }
 
 async function getSignedUrl() {
+  console.log("getsignedUrl start");
   try {
     const response = await fetch(
       `https://api.elevenlabs.io/v1/convai/conversation/get_signed_url?agent_id=${ELEVENLABS_AGENT_ID}`,
@@ -44,7 +45,7 @@ async function getSignedUrl() {
     );
 
     if (!response.ok) {
-      console.log('Failed to get signed URL: ${response.statusText}')
+      console.log('Failed to get signed URL: ${response.statusText}');
 
       throw new Error(`Failed to get signed URL: ${response.statusText}`);
     }

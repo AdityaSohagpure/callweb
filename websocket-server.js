@@ -155,8 +155,7 @@ wss.on('connection', async (twilioWs) => {
   twilioWs.on('message', (msg) => {
     try {
       const message = JSON.parse(msg);
-      console.log('[📥 Twilio] Received:', message);
-
+     
       switch (message.event) {
         case 'start':
           streamSid = message.start.streamSid;
